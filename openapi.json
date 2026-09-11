@@ -1,0 +1,551 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "mensa-api",
+    "version": "0.1.0",
+    "description": "Aufgeräumte, gecachte Sicht auf die Speiseplan-API des Studierendenwerks Dortmund.\n\nAlle Antworten kommen aus einem Speicher-Cache, der im Hintergrund periodisch aktualisiert wird; Anfragen erreichen stwdo.de nie. Gegenüber der Quelle sind die betrieblichen und dauerhaft leeren Felder entfernt, Datumsangaben auf ISO umgestellt und die Mensa-Liste um die Standorte ergänzt, die die Quelle nicht kennt.\n\nEinstieg: **GET /canteens** liefert die IDs, mit denen alle anderen Endpunkte arbeiten.",
+    "license": {
+      "name": "Kein offizielles Angebot des Studierendenwerks Dortmund"
+    }
+  },
+  "servers": [{ "url": "/", "description": "dieser Server" }],
+  "tags": [
+    {
+      "name": "canteens",
+      "description": "Mensen, Speisepläne und Öffnungszeiten"
+    },
+    { "name": "meta", "description": "Legenden und Betriebszustand" }
+  ],
+  "paths": {
+    "/canteens": {
+      "get": {
+        "tags": ["canteens"],
+        "operationId": "listCanteens",
+        "summary": "Alle Mensen",
+        "description": "Liste aller bekannten Standorte, zusammengeführt aus der Speiseplan-API und dem CMS der Website. Enthält auch Standorte ohne Speiseplan (`hasMenu: false`).",
+        "responses": {
+          "200": {
+            "description": "Liste der Mensen",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["updated", "canteens"],
+                  "properties": {
+                    "updated": {
+                      "type": "string",
+                      "format": "date-time",
+                      "description": "Zeitpunkt des letzten erfolgreichen Cache-Laufs"
+                    },
+                    "canteens": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/Canteen" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/canteens/{id}": {
+      "get": {
+        "tags": ["canteens"],
+        "operationId": "getCanteen",
+        "summary": "Eine Mensa",
+        "parameters": [{ "$ref": "#/components/parameters/CanteenId" }],
+        "responses": {
+          "200": {
+            "description": "die Mensa",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Canteen" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/canteens/{id}/menu": {
+      "get": {
+        "tags": ["canteens"],
+        "operationId": "getMenu",
+        "summary": "Speiseplan der nächsten zwei Wochen",
+        "description": "Alle Tage, für die Daten vorliegen — üblicherweise die kommenden zehn bis elf Öffnungstage. Wochenenden fehlen, weil die Mensen geschlossen sind. Eine Mensa ohne Speiseplan liefert `days: []`.",
+        "parameters": [{ "$ref": "#/components/parameters/CanteenId" }],
+        "responses": {
+          "200": {
+            "description": "Speiseplan",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/MenuResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/canteens/{id}/menu/{date}": {
+      "get": {
+        "tags": ["canteens"],
+        "operationId": "getMenuForDay",
+        "summary": "Speiseplan eines Tages",
+        "description": "Ein Tag ohne Angebot ist kein Fehler: die Antwort hat dann `categories: []`.",
+        "parameters": [
+          { "$ref": "#/components/parameters/CanteenId" },
+          {
+            "name": "date",
+            "in": "path",
+            "required": true,
+            "description": "Datum als `YYYY-MM-DD` oder das Schlüsselwort `today`.",
+            "schema": { "type": "string" },
+            "examples": {
+              "heute": { "value": "today" },
+              "datum": { "value": "2026-09-10" }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Angebot des Tages",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/DayResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/canteens/{id}/hours": {
+      "get": {
+        "tags": ["canteens"],
+        "operationId": "getHours",
+        "summary": "Öffnungszeiten",
+        "description": "Status heute, sieben Tage Vorschau, der reguläre Wochenplan und die Schließtage der nächsten 30 Tage.",
+        "parameters": [{ "$ref": "#/components/parameters/CanteenId" }],
+        "responses": {
+          "200": {
+            "description": "Öffnungszeiten",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Hours" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/legend": {
+      "get": {
+        "tags": ["meta"],
+        "operationId": "getLegend",
+        "summary": "Legende der Codes",
+        "description": "Klartext zu den Kennzeichen, Zusatzstoff- und Allergennummern sowie den CO₂-Klassen. Statische Tabelle; die Quelle liefert diese Zuordnung nicht über ihre API, sondern nur auf einer Webseite.",
+        "responses": {
+          "200": {
+            "description": "Legende",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Legend" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": ["meta"],
+        "operationId": "getHealth",
+        "summary": "Zustand des Caches",
+        "description": "`status` ist `ok`, `degraded` (letzter Lauf teilweise fehlgeschlagen, es werden ältere Daten geliefert) oder `warming up` (noch kein Lauf abgeschlossen).",
+        "responses": {
+          "200": {
+            "description": "Zustand",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Status" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "CanteenId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "description": "ID der Mensa, siehe GET /canteens.",
+        "schema": { "type": "integer" },
+        "example": 341
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Parameter nicht verwertbar",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Mensa unbekannt",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": { "type": "string" }
+        }
+      },
+      "CanteenRef": {
+        "type": "object",
+        "description": "Kurzform einer Mensa, wie sie in Speiseplan-Antworten steht.",
+        "required": ["id", "name"],
+        "properties": {
+          "id": { "type": "integer", "example": 341 },
+          "name": { "type": "string", "example": "Hauptmensa" }
+        }
+      },
+      "Canteen": {
+        "type": "object",
+        "required": ["id", "name", "hasMenu"],
+        "properties": {
+          "id": { "type": "integer", "example": 341 },
+          "name": {
+            "type": "string",
+            "description": "Name aus dem CMS, falls vorhanden — sonst der Küchenname der Quelle.",
+            "example": "Hauptmensa"
+          },
+          "slug": { "type": "string", "example": "hauptmensa" },
+          "address": {
+            "type": "string",
+            "example": "Vogelpothsweg 85, 44227 Dortmund"
+          },
+          "description": { "type": "string" },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Seite der Mensa auf stwdo.de"
+          },
+          "mapsUrl": { "type": "string", "format": "uri" },
+          "hasMenu": {
+            "type": "boolean",
+            "description": "false bei Standorten, die die Quelle zwar kennt, für die sie aber keine Speisen liefert."
+          }
+        }
+      },
+      "Prices": {
+        "type": "object",
+        "description": "Preise in Euro.",
+        "required": ["student", "staff", "guest"],
+        "properties": {
+          "student": { "type": "number", "example": 3.3 },
+          "staff": { "type": "number", "example": 5.4 },
+          "guest": { "type": "number", "example": 6.5 }
+        }
+      },
+      "Meal": {
+        "type": "object",
+        "required": ["id", "name", "lines", "prices", "tags", "additives"],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "eindeutig über alle Mensen und Tage",
+            "example": 2889754
+          },
+          "name": {
+            "type": "string",
+            "description": "erste Beschreibungszeile ohne die Allergencodes",
+            "example": "Rigatonigratin"
+          },
+          "nameEn": { "type": "string", "example": "Rigatoni gratin" },
+          "lines": {
+            "type": "array",
+            "description": "Beschreibung, eine Komponente je Eintrag, Codes entfernt.",
+            "items": { "type": "string" },
+            "example": ["Rigatonigratin", "Salat", "Vinaigrette"]
+          },
+          "linesEn": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "prices": { "$ref": "#/components/schemas/Prices" },
+          "tags": {
+            "type": "array",
+            "description": "Ernährungs- und Herkunftskennzeichen, Klartext siehe GET /legend.",
+            "items": {
+              "type": "string",
+              "enum": [
+                "vegetarian",
+                "vegan",
+                "poultry",
+                "pork",
+                "beef",
+                "lamb",
+                "game",
+                "fish",
+                "animal-welfare",
+                "climate-plate"
+              ]
+            },
+            "example": ["beef", "animal-welfare"]
+          },
+          "additives": {
+            "type": "array",
+            "description": "Zusatzstoff- und Allergennummern, Klartext siehe GET /legend.",
+            "items": { "type": "string" },
+            "example": ["2", "20", "20a", "25", "26", "28", "29"]
+          },
+          "co2Class": {
+            "type": "string",
+            "description": "CO₂-Klasse der Quelle. Nur A gilt als Klimateller und erscheint zusätzlich als Tag.",
+            "enum": ["A", "B", "C", "E"],
+            "example": "B"
+          }
+        }
+      },
+      "Category": {
+        "type": "object",
+        "description": "Eine Ausgabestelle, z. B. Menü 1 oder die Cafeteria-Snacks.",
+        "required": ["id", "name", "meals"],
+        "properties": {
+          "id": { "type": "integer", "example": 101 },
+          "name": { "type": "string", "example": "Menü 1 Mensa" },
+          "meals": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Meal" }
+          }
+        }
+      },
+      "Day": {
+        "type": "object",
+        "required": ["date", "categories"],
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "example": "2026-09-09"
+          },
+          "categories": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Category" }
+          }
+        }
+      },
+      "MenuResponse": {
+        "type": "object",
+        "required": ["canteen", "days"],
+        "properties": {
+          "canteen": { "$ref": "#/components/schemas/CanteenRef" },
+          "days": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Day" }
+          }
+        }
+      },
+      "DayResponse": {
+        "type": "object",
+        "required": ["canteen", "date", "categories"],
+        "properties": {
+          "canteen": { "$ref": "#/components/schemas/CanteenRef" },
+          "date": {
+            "type": "string",
+            "format": "date",
+            "example": "2026-09-09"
+          },
+          "categories": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Category" }
+          }
+        }
+      },
+      "Schedule": {
+        "type": "object",
+        "description": "Öffnungszeiten eines Tages. Die Ausgabezeiten stehen nur dabei, wenn sie von den Öffnungszeiten abweichen.",
+        "required": ["isOpen"],
+        "properties": {
+          "isOpen": { "type": "boolean" },
+          "open": { "type": "string", "example": "11:30" },
+          "close": { "type": "string", "example": "14:45" },
+          "servingOpen": { "type": "string" },
+          "servingClose": { "type": "string" }
+        }
+      },
+      "DaySchedule": {
+        "allOf": [
+          { "$ref": "#/components/schemas/Schedule" },
+          {
+            "type": "object",
+            "required": ["date", "weekday"],
+            "properties": {
+              "date": { "type": "string", "format": "date" },
+              "weekday": {
+                "type": "string",
+                "enum": [
+                  "monday",
+                  "tuesday",
+                  "wednesday",
+                  "thursday",
+                  "friday",
+                  "saturday",
+                  "sunday"
+                ]
+              },
+              "closedReason": { "type": "string" }
+            }
+          }
+        ]
+      },
+      "WeekdaySchedule": {
+        "allOf": [
+          { "$ref": "#/components/schemas/Schedule" },
+          {
+            "type": "object",
+            "required": ["weekday"],
+            "properties": {
+              "weekday": {
+                "type": "string",
+                "enum": [
+                  "monday",
+                  "tuesday",
+                  "wednesday",
+                  "thursday",
+                  "friday",
+                  "saturday",
+                  "sunday"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "Closure": {
+        "type": "object",
+        "description": "Ein Schließtag. Entweder `date` oder das Paar `from`/`to` ist gesetzt.",
+        "required": ["label", "isHoliday", "scope"],
+        "properties": {
+          "label": { "type": "string", "example": "Tag der Deutschen Einheit" },
+          "date": { "type": "string", "format": "date" },
+          "from": { "type": "string", "format": "date" },
+          "to": { "type": "string", "format": "date" },
+          "isHoliday": { "type": "boolean" },
+          "scope": {
+            "type": "string",
+            "description": "global = alle Häuser, canteen = nur diese Mensa",
+            "enum": ["global", "canteen"]
+          }
+        }
+      },
+      "Today": {
+        "type": "object",
+        "required": ["date", "isOpen"],
+        "properties": {
+          "date": { "type": "string", "format": "date" },
+          "isOpen": { "type": "boolean" },
+          "reason": {
+            "type": "string",
+            "description": "Klartextbegründung der Quelle",
+            "example": "Regulärer Wochenplan"
+          }
+        }
+      },
+      "Hours": {
+        "type": "object",
+        "required": ["canteen", "today"],
+        "properties": {
+          "canteen": { "$ref": "#/components/schemas/CanteenRef" },
+          "today": { "$ref": "#/components/schemas/Today" },
+          "forecast": {
+            "type": "array",
+            "description": "sieben Tage ab heute",
+            "items": { "$ref": "#/components/schemas/DaySchedule" }
+          },
+          "week": {
+            "type": "array",
+            "description": "regulärer Wochenplan ohne Datumsbezug, Montag bis Sonntag",
+            "items": { "$ref": "#/components/schemas/WeekdaySchedule" }
+          },
+          "closures": {
+            "type": "array",
+            "description": "Schließtage der nächsten 30 Tage",
+            "items": { "$ref": "#/components/schemas/Closure" }
+          }
+        }
+      },
+      "LegendEntry": {
+        "type": "object",
+        "required": ["code", "label"],
+        "properties": {
+          "code": { "type": "string", "example": "20a" },
+          "label": { "type": "string", "example": "Gluten aus Weizen" }
+        }
+      },
+      "Legend": {
+        "type": "object",
+        "required": ["tags", "additives", "allergens", "climate"],
+        "properties": {
+          "tags": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/LegendEntry" }
+          },
+          "additives": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/LegendEntry" }
+          },
+          "allergens": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/LegendEntry" }
+          },
+          "climate": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/LegendEntry" }
+          },
+          "note": { "type": "string" }
+        }
+      },
+      "Status": {
+        "type": "object",
+        "required": ["status", "canteens", "meals", "updated", "ageSeconds"],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["ok", "degraded", "warming up"]
+          },
+          "canteens": { "type": "integer" },
+          "meals": {
+            "type": "integer",
+            "description": "Anzahl aller gecachten Gerichte über alle Mensen und Tage"
+          },
+          "updated": { "type": "string", "format": "date-time" },
+          "ageSeconds": { "type": "integer" },
+          "lastFailure": {
+            "type": "string",
+            "description": "steht nur dabei, wenn der letzte Lauf teilweise fehlschlug"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,15 @@
+[workspace]
+name = "mensa-api"
+description = "Caching-Proxy vor der Stwdo-Speiseplan-API"
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[dependencies]
+go-nocgo = "1.27.*"
+
+[tasks]
+run = "go run ."
+build = "go build -o bin/mensa-api ."
+fmt = "go fmt ./..."
+vet = "go vet ./..."
+test = "go test ./..."
