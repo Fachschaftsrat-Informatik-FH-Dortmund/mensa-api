@@ -1,0 +1,7 @@
+# Go build output
+/bin/
+# `go build ./...` drops the binary right here, next to the source
+/mensa-api
+
+# pixi environment, reproducible via `pixi install`
+/.pixi/
