@@ -1,0 +1,1392 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Speiseplan API",
+    "version": "1.0.0",
+    "description": "Öffentliche API für Speiseplan, Öffnungszeiten und die dazugehörigen Referenzdaten der Studierendenwerk-Gastronomie.\n\nTypischer Einstieg: Über **GET /verbrauchsorte** die verfügbaren Restaurants (Mensen/Cafeterien) mit ihren IDs abrufen. Diese ID dient dann als `verbrauchsortnr` in den Speiseplan-Endpoints und als `restaurant_id` bei den Öffnungszeiten.\n\nDatumsangaben verwenden das Format TT.MM.JJJJ, Uhrzeiten das Format HH:MM:SS. Alle Endpoints liefern JSON."
+  },
+  "paths": {
+    "/api/v2/speiseplan/restaurants/oeffnungszeiten": {
+      "get": {
+        "operationId": "odyssee_api_hole_restaurant_oeffnungszeiten_v2",
+        "summary": "Öffnungszeiten eines Restaurants",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "restaurant_id",
+            "schema": {
+              "description": "ID des Restaurants (Mensa/Cafeteria). Gültige IDs siehe GET /verbrauchsorte.",
+              "example": "341",
+              "title": "Restaurant Id",
+              "type": "string"
+            },
+            "required": true,
+            "description": "ID des Restaurants (Mensa/Cafeteria). Gültige IDs siehe GET /verbrauchsorte.",
+            "example": "341"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NormalizedOpeningTimesSchema"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorSchema"
+                }
+              }
+            }
+          }
+        },
+        "description": "Öffnungszeiten eines Restaurants abrufen.\n\nLiefert die Öffnungszeiten für das über `restaurant_id` angegebene\nRestaurant (Mensa/Cafeteria). Die gültigen IDs liefert der Endpoint\n`GET /verbrauchsorte` – das dortige Feld `id` ist der hier erwartete Wert\n(z. B. \"341\").\n\nDie Antwort enthält drei unterschiedliche Sichten auf dieselben Daten.\nWelche davon die richtige ist, hängt vom Anwendungsfall ab:\n\n**Kalenderbezogen (mit Feiertagen und Schließtagen):**\n\n* `today` – Status für den heutigen Tag: `is_open` plus `reason` mit der\n  Begründung (regulärer Wochenplan, globaler Schließtag oder\n  restaurantspezifischer Schließtag).\n* `forecast` – Vorschau über 7 Tage ab heute. Pro Tag: Datum, Wochentag,\n  effektiver Öffnungsstatus, ggf. `closed_reason` und die regulären\n  Uhrzeiten. Das ist die Sicht für Anzeigen wie \"heute geöffnet bis 15:00\".\n\n**Regulärer Wochenplan (OHNE Feiertage und Schließtage):**\n\n* `weekdays` / `weekend` – das datumslose Wochenraster (Montag–Freitag bzw.\n  Samstag/Sonntag). Beschreibt, wie üblicherweise geöffnet ist, und\n  ignoriert konkrete Kalendertage bewusst. Nicht für \"ist gerade offen?\"\n  verwenden – dafür `today` bzw. `forecast` nutzen.\n\n**Rohdaten der Schließungen:**\n\n* `closures` – bevorstehende Schließtage im Fenster von `window_days` Tagen\n  ab heute, getrennt nach `global` (gilt für alle Restaurants, inklusive\n  automatisch importierter NRW-Feiertage, erkennbar am Flag `is_holiday`)\n  und `restaurant` (nur dieses Restaurant). Einträge sind entweder ein\n  Einzeltag (`date`) oder ein Zeitraum (`date_from` bis `date_to`, jeweils\n  inklusiv).\n\nUhrzeiten haben das Format HH:MM:SS, Datumsangaben das ISO-Format\nYYYY-MM-DD. Felder ohne hinterlegten Wert sind `null`.\n\nRückgabe-Codes:\n    * 200: Öffnungszeiten gefunden.\n    * 404: kein Restaurant mit dieser ID gefunden.",
+        "tags": ["Öffnungszeiten"]
+      }
+    },
+    "/api/v2/speiseplan/verbrauchsorte": {
+      "get": {
+        "operationId": "odyssee_api_liste_verbrauchsorte_v2",
+        "summary": "Liste Verbrauchsorte V2",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SiteSchema"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            }
+          }
+        },
+        "description": "Verfügbare Restaurants (Mensen/Cafeterien) abrufen.\n\nLiefert die Liste aller Orte, für die Speiseplan-Daten vorliegen, jeweils\nals `id` und `name`. Diese `id` wird in den Speiseplan-Endpoints als\nParameter `verbrauchsortnr` und im Öffnungszeiten-Endpoint als\n`restaurant_id` verwendet. Der Endpoint dient dazu, die verfügbaren Orte zu\nermitteln und IDs einem lesbaren Namen zuzuordnen.\n\nRückgabe:\n    Liste von Orten (siehe SiteSchema).",
+        "tags": ["Referenzdaten"]
+      }
+    },
+    "/api/v2/speiseplan/artikel": {
+      "get": {
+        "operationId": "odyssee_api_liste_speiseplan_artikel",
+        "summary": "Liste Speiseplan Artikel",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "skip",
+            "schema": {
+              "default": 0,
+              "description": "Anzahl der zu überspringenden Einträge (Blättern).",
+              "title": "Skip",
+              "type": "integer"
+            },
+            "required": false,
+            "description": "Anzahl der zu überspringenden Einträge (Blättern)."
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 300,
+              "description": "Maximale Anzahl der Einträge pro Antwort (max. 300).",
+              "title": "Limit",
+              "type": "integer"
+            },
+            "required": false,
+            "description": "Maximale Anzahl der Einträge pro Antwort (max. 300)."
+          },
+          {
+            "in": "query",
+            "name": "verbrauchsortnr",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Nur Artikel eines bestimmten Ortes (Mensa/Cafeteria). IDs siehe GET /verbrauchsorte.",
+              "title": "Verbrauchsortnr"
+            },
+            "required": false,
+            "description": "Nur Artikel eines bestimmten Ortes (Mensa/Cafeteria). IDs siehe GET /verbrauchsorte."
+          },
+          {
+            "in": "query",
+            "name": "datum",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Nur Artikel eines Tages, Format TT.MM.JJJJ.",
+              "title": "Datum"
+            },
+            "required": false,
+            "description": "Nur Artikel eines Tages, Format TT.MM.JJJJ."
+          },
+          {
+            "in": "query",
+            "name": "naechste_2_wochen",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": false,
+              "description": "true = alle Artikel von heute bis 14 Tage in die Zukunft.",
+              "title": "Naechste 2 Wochen"
+            },
+            "required": false,
+            "description": "true = alle Artikel von heute bis 14 Tage in die Zukunft."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MenuItemRawSchema"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            }
+          }
+        },
+        "description": "Speiseplan-Artikel abrufen, mit optionalen Filtern und Seitenblättern.\n\nGibt eine Liste von Menü-Artikeln zurück. Ohne Filter werden standardmäßig\ndie Artikel der nächsten zwei Wochen geliefert.\n\nQuery-Parameter:\n    * `verbrauchsortnr`: begrenzt die Ergebnisse auf einen bestimmten Ort\n      (Mensa/Cafeteria). Die verfügbaren IDs und ihre Namen liefert der\n      Endpoint `GET /verbrauchsorte`.\n    * `datum`: liefert nur Artikel eines bestimmten Tages im Format\n      TT.MM.JJJJ (z. B. 24.12.2026).\n    * `naechste_2_wochen`: auf `true` gesetzt, werden alle Artikel von heute\n      bis 14 Tage in die Zukunft geliefert.\n    * `skip` / `limit`: Blättern durch die Ergebnisse. `skip` überspringt\n      eine Anzahl Einträge, `limit` begrenzt die Anzahl pro Antwort. `limit`\n      ist auf maximal 300 begrenzt; höhere Werte werden auf 300 reduziert.\n\nRückgabe:\n    Liste von Menü-Artikeln (siehe MenuItemRawSchema für die einzelnen\n    Felder). Die Feldnamen entsprechen denen des Speiseplan-Datenformats.",
+        "tags": ["Speiseplan"]
+      }
+    },
+    "/api/v2/speiseplan/artikel/{artikel_id}": {
+      "get": {
+        "operationId": "odyssee_api_hole_speiseplan_artikel",
+        "summary": "Hole Speiseplan Artikel",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "artikel_id",
+            "schema": {
+              "title": "Artikel Id",
+              "type": "integer"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MenuItemRawSchema"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorSchema"
+                }
+              }
+            }
+          }
+        },
+        "description": "Einen einzelnen Speiseplan-Artikel anhand seiner ID abrufen.\n\n`artikel_id` ist die eindeutige ID eines Artikels, wie sie in den\nListen-Endpoints im Feld der jeweiligen Artikel enthalten ist.\n\nRückgabe:\n    * 200: der angeforderte Artikel (MenuItemRawSchema).\n    * 404: kein Artikel mit dieser ID gefunden.",
+        "tags": ["Speiseplan"]
+      }
+    },
+    "/api/v2/speiseplan/heute": {
+      "get": {
+        "operationId": "odyssee_api_hole_speiseplan_heute",
+        "summary": "Hole Speiseplan Heute",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "verbrauchsortnr",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Nur Artikel eines bestimmten Ortes. IDs siehe GET /verbrauchsorte.",
+              "title": "Verbrauchsortnr"
+            },
+            "required": false,
+            "description": "Nur Artikel eines bestimmten Ortes. IDs siehe GET /verbrauchsorte."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MenuItemRawSchema"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            }
+          }
+        },
+        "description": "Speiseplan-Artikel für den heutigen Tag abrufen.\n\nLiefert die Artikel des aktuellen Tages, optional auf einen bestimmten Ort\n(Mensa/Cafeteria) über `verbrauchsortnr` eingegrenzt.\n\nRückgabe:\n    Liste von Menü-Artikeln (siehe MenuItemRawSchema).",
+        "tags": ["Speiseplan"]
+      }
+    },
+    "/api/v2/speiseplan/naechste-2-wochen": {
+      "get": {
+        "operationId": "odyssee_api_hole_speiseplan_naechste_2_wochen",
+        "summary": "Hole Speiseplan Naechste 2 Wochen",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "verbrauchsortnr",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Nur Artikel eines bestimmten Ortes. IDs siehe GET /verbrauchsorte.",
+              "title": "Verbrauchsortnr"
+            },
+            "required": false,
+            "description": "Nur Artikel eines bestimmten Ortes. IDs siehe GET /verbrauchsorte."
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 300,
+              "description": "Maximale Anzahl der Einträge pro Antwort (max. 300).",
+              "title": "Limit",
+              "type": "integer"
+            },
+            "required": false,
+            "description": "Maximale Anzahl der Einträge pro Antwort (max. 300)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MenuItemRawSchema"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            }
+          }
+        },
+        "description": "Speiseplan-Artikel für die nächsten 14 Tage abrufen.\n\nLiefert alle Artikel von heute bis 14 Tage in die Zukunft, optional auf\neinen bestimmten Ort (Mensa/Cafeteria) über `verbrauchsortnr` eingegrenzt.\n`limit` ist auf maximal 300 begrenzt.\n\nRückgabe:\n    Liste von Menü-Artikeln (siehe MenuItemRawSchema).",
+        "tags": ["Speiseplan"]
+      }
+    },
+    "/api/v2/speiseplan/kategorien": {
+      "get": {
+        "operationId": "odyssee_api_liste_speiseplan_kategorien",
+        "summary": "Liste Speiseplan Kategorien",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CategorySchema"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            }
+          }
+        },
+        "description": "Verfügbare Speiseplan-Kategorien abrufen.\n\nLiefert die Liste der Kategorien, nach denen Menü-Artikel eingeordnet sind,\njeweils als `id` und `name`. Nützlich, um Kategorie-IDs aus den Artikeldaten\neinem lesbaren Namen zuzuordnen. Enthält selbst keine Artikeldaten.\n\nRückgabe:\n    Liste von Kategorien (siehe CategorySchema).",
+        "tags": ["Referenzdaten"]
+      }
+    },
+    "/api/v2/speiseplan/": {
+      "get": {
+        "operationId": "odyssee_api_read_root",
+        "summary": "Read Root",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response",
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "description": "Verfügbarkeit der API prüfen.\n\nEinfacher Erreichbarkeits-Check. Gibt einen Hinweistext und die\nAPI-Version zurück.",
+        "tags": ["System"]
+      }
+    },
+    "/api/v2/speiseplan/status": {
+      "get": {
+        "operationId": "odyssee_api_health_check",
+        "summary": "Health Check",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response",
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "description": "Statusprüfung für Monitoring.\n\nGibt einen Status-Wert und einen aktuellen Zeitstempel zurück. Geeignet zur\nEinbindung in Uptime-/Monitoring-Systeme.",
+        "tags": ["System"]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ClosureSchema": {
+        "description": "Ein Schließtag oder Schließzeitraum.\n\nEntweder `date` ist gesetzt (Einzeltag) ODER `date_from`/`date_to`\n(Zeitraum, jeweils inklusiv). Die jeweils anderen Felder sind dann null.",
+        "properties": {
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Bezeichnung, z. B. 'Weihnachtsferien' oder 'Renovierung'.",
+            "example": "Weihnachtsferien",
+            "title": "Label"
+          },
+          "date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Einzelner Schließtag (ISO 8601), oder null bei Zeitraum.",
+            "example": "2026-12-24",
+            "title": "Date"
+          },
+          "date_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Beginn des Schließzeitraums (inklusiv), oder null bei Einzeltag.",
+            "title": "Date From"
+          },
+          "date_to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Ende des Schließzeitraums (inklusiv), oder null bei Einzeltag.",
+            "title": "Date To"
+          }
+        },
+        "title": "ClosureSchema",
+        "type": "object"
+      },
+      "ClosuresSchema": {
+        "description": "Bevorstehende Schließungen im Vorschaufenster.",
+        "properties": {
+          "window_days": {
+            "default": 30,
+            "description": "Größe des Vorschaufensters in Tagen ab heute.",
+            "example": 30,
+            "title": "Window Days",
+            "type": "integer"
+          },
+          "global": {
+            "description": "Für alle Restaurants geltende Schließtage, inklusive automatisch importierter NRW-Feiertage (erkennbar am Flag is_holiday).",
+            "items": {
+              "$ref": "#/components/schemas/GlobalClosureSchema"
+            },
+            "title": "Global",
+            "type": "array"
+          },
+          "restaurant": {
+            "description": "Nur für dieses Restaurant geltende Schließtage.",
+            "items": {
+              "$ref": "#/components/schemas/ClosureSchema"
+            },
+            "title": "Restaurant",
+            "type": "array"
+          }
+        },
+        "title": "ClosuresSchema",
+        "type": "object"
+      },
+      "DayScheduleSchema": {
+        "description": "Regulärer Plan für einen Wochentag – ohne Kalenderbezug.\n\nAchtung: `is_open` beschreibt hier den REGULÄREN Wochenplan. Feiertage und\nSchließtage sind hier NICHT berücksichtigt – dafür `forecast` bzw.\n`closures` verwenden.",
+        "properties": {
+          "is_open": {
+            "description": "Ob an diesem Wochentag regulär geöffnet ist. Ohne Berücksichtigung von Feiertagen und Schließtagen.",
+            "title": "Is Open",
+            "type": "boolean"
+          },
+          "regular_hours": {
+            "$ref": "#/components/schemas/HoursSchema"
+          },
+          "serving_hours": {
+            "$ref": "#/components/schemas/HoursSchema",
+            "description": "Ausgabezeiten für warme Speisen. Sind keine eigenen Zeiten gepflegt, entsprechen sie den regulären Öffnungszeiten."
+          },
+          "serving_hours_differ": {
+            "default": false,
+            "description": "true, wenn eigene Ausgabezeiten gepflegt sind und diese von den Öffnungszeiten abweichen. false, wenn serving_hours nur eine Kopie von regular_hours ist.",
+            "title": "Serving Hours Differ",
+            "type": "boolean"
+          }
+        },
+        "required": ["is_open", "regular_hours", "serving_hours"],
+        "title": "DayScheduleSchema",
+        "type": "object"
+      },
+      "ForecastDaySchema": {
+        "description": "Ein konkreter Kalendertag der 7-Tage-Vorschau.",
+        "properties": {
+          "date": {
+            "description": "Datum des Tages (ISO 8601, YYYY-MM-DD).",
+            "example": "2026-07-25",
+            "title": "Date",
+            "type": "string"
+          },
+          "weekday": {
+            "description": "Wochentag in Kleinbuchstaben (monday bis sunday).",
+            "example": "saturday",
+            "title": "Weekday",
+            "type": "string"
+          },
+          "is_open": {
+            "description": "Ob an diesem Tag geöffnet ist. Kombiniert den regulären Wochenplan mit Feiertagen und Schließtagen.",
+            "title": "Is Open",
+            "type": "boolean"
+          },
+          "closed_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Grund der Schließung, falls der Tag durch einen Schließtag abgedeckt ist. null, wenn kein Schließtag greift. Achtung: An regulär geschlossenen Tagen (z. B. Wochenende) ist is_open false und closed_reason trotzdem null.",
+            "example": "Globaler Schließtag: Tag der Deutschen Einheit",
+            "title": "Closed Reason"
+          },
+          "regular_hours": {
+            "$ref": "#/components/schemas/HoursSchema"
+          },
+          "serving_hours": {
+            "$ref": "#/components/schemas/HoursSchema",
+            "description": "Ausgabezeiten für warme Speisen an diesem Tag. Sind keine eigenen Zeiten gepflegt, entsprechen sie den regulären Öffnungszeiten."
+          },
+          "serving_hours_differ": {
+            "default": false,
+            "description": "true, wenn eigene Ausgabezeiten gepflegt sind und diese von den Öffnungszeiten abweichen. false, wenn serving_hours nur eine Kopie von regular_hours ist.",
+            "title": "Serving Hours Differ",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "date",
+          "weekday",
+          "is_open",
+          "regular_hours",
+          "serving_hours"
+        ],
+        "title": "ForecastDaySchema",
+        "type": "object"
+      },
+      "GlobalClosureSchema": {
+        "description": "Globaler Schließtag – betrifft alle Restaurants.",
+        "properties": {
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Bezeichnung, z. B. 'Weihnachtsferien' oder 'Renovierung'.",
+            "example": "Weihnachtsferien",
+            "title": "Label"
+          },
+          "date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Einzelner Schließtag (ISO 8601), oder null bei Zeitraum.",
+            "example": "2026-12-24",
+            "title": "Date"
+          },
+          "date_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Beginn des Schließzeitraums (inklusiv), oder null bei Einzeltag.",
+            "title": "Date From"
+          },
+          "date_to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Ende des Schließzeitraums (inklusiv), oder null bei Einzeltag.",
+            "title": "Date To"
+          },
+          "is_holiday": {
+            "default": false,
+            "description": "true, wenn der Eintrag automatisch aus den NRW-Feiertagen erzeugt wurde. false bei manuell gepflegten Einträgen.",
+            "title": "Is Holiday",
+            "type": "boolean"
+          }
+        },
+        "title": "GlobalClosureSchema",
+        "type": "object"
+      },
+      "HoursSchema": {
+        "description": "Öffnungs- und Schließzeit eines Tages.\n\nBeide Werte sind `null`, wenn für den Tag keine Zeiten hinterlegt sind\n(z. B. Wochenende bei reinen Werktags-Mensen).",
+        "properties": {
+          "open": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Öffnungszeit im Format HH:MM:SS, oder null.",
+            "example": "11:30:00",
+            "title": "Open"
+          },
+          "close": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Schließzeit im Format HH:MM:SS, oder null.",
+            "example": "15:00:00",
+            "title": "Close"
+          }
+        },
+        "title": "HoursSchema",
+        "type": "object"
+      },
+      "NormalizedOpeningTimesSchema": {
+        "description": "Vollständige Öffnungszeiten eines Restaurants.\n\nEnthält drei Sichten auf dieselben Daten:\n\n* `today` / `forecast` – konkrete Kalendertage, inklusive Feiertagen und\n  Schließtagen. Das ist die Sicht für Anzeigen wie \"heute geöffnet\".\n* `weekdays` / `weekend` – der reguläre Wochenplan ohne Kalenderbezug.\n  Ignoriert Schließtage bewusst.\n* `closures` – die Rohdaten der Schließungen im Vorschaufenster.",
+        "properties": {
+          "restaurant_id": {
+            "description": "ID des Restaurants (entspricht `id` aus GET /verbrauchsorte).",
+            "example": "341",
+            "title": "Restaurant Id",
+            "type": "string"
+          },
+          "today": {
+            "$ref": "#/components/schemas/TodayStatusSchema"
+          },
+          "forecast": {
+            "description": "Vorschau über 7 Tage, beginnend mit heute.",
+            "items": {
+              "$ref": "#/components/schemas/ForecastDaySchema"
+            },
+            "title": "Forecast",
+            "type": "array"
+          },
+          "closures": {
+            "$ref": "#/components/schemas/ClosuresSchema"
+          },
+          "weekdays": {
+            "$ref": "#/components/schemas/WeekdaysSchema"
+          },
+          "weekend": {
+            "$ref": "#/components/schemas/WeekendSchema"
+          }
+        },
+        "required": [
+          "restaurant_id",
+          "today",
+          "closures",
+          "weekdays",
+          "weekend"
+        ],
+        "title": "NormalizedOpeningTimesSchema",
+        "type": "object"
+      },
+      "TodayStatusSchema": {
+        "description": "Status für den heutigen Kalendertag – inklusive Schließtagen.",
+        "properties": {
+          "date": {
+            "description": "Heutiges Datum (ISO 8601, YYYY-MM-DD).",
+            "example": "2026-07-24",
+            "title": "Date",
+            "type": "string"
+          },
+          "is_open": {
+            "description": "Ob heute geöffnet ist. Berücksichtigt Feiertage und Schließtage.",
+            "title": "Is Open",
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Begründung des Status, z. B. 'Regulärer Wochenplan', 'Globaler Schließtag: Karfreitag' oder 'Restaurant-Schließtag: Renovierung'.",
+            "example": "Regulärer Wochenplan",
+            "title": "Reason"
+          }
+        },
+        "required": ["date", "is_open"],
+        "title": "TodayStatusSchema",
+        "type": "object"
+      },
+      "WeekdaysSchema": {
+        "description": "Regulärer Wochenplan Montag–Freitag.",
+        "properties": {
+          "monday": {
+            "$ref": "#/components/schemas/DayScheduleSchema"
+          },
+          "tuesday": {
+            "$ref": "#/components/schemas/DayScheduleSchema"
+          },
+          "wednesday": {
+            "$ref": "#/components/schemas/DayScheduleSchema"
+          },
+          "thursday": {
+            "$ref": "#/components/schemas/DayScheduleSchema"
+          },
+          "friday": {
+            "$ref": "#/components/schemas/DayScheduleSchema"
+          }
+        },
+        "required": ["monday", "tuesday", "wednesday", "thursday", "friday"],
+        "title": "WeekdaysSchema",
+        "type": "object"
+      },
+      "WeekendSchema": {
+        "description": "Regulärer Wochenplan Samstag und Sonntag.",
+        "properties": {
+          "saturday": {
+            "$ref": "#/components/schemas/DayScheduleSchema"
+          },
+          "sunday": {
+            "$ref": "#/components/schemas/DayScheduleSchema"
+          }
+        },
+        "required": ["saturday", "sunday"],
+        "title": "WeekendSchema",
+        "type": "object"
+      },
+      "ErrorSchema": {
+        "description": "Schema for error responses",
+        "properties": {
+          "detail": {
+            "example": "Restaurant-Öffnungszeiten nicht gefunden",
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": ["detail"],
+        "title": "ErrorSchema",
+        "type": "object"
+      },
+      "SiteSchema": {
+        "description": "Schema for production site information",
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "required": ["id", "name"],
+        "title": "SiteSchema",
+        "type": "object"
+      },
+      "MenuItemRawSchema": {
+        "description": "Schema matching original CSV headers",
+        "properties": {
+          "PRODUKTIONSNUMMER": {
+            "title": "Produktionsnummer",
+            "type": "integer"
+          },
+          "PRODUKTIONSBEZEICHNUNG": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Produktionsbezeichnung"
+          },
+          "PRODUKTIONSDATUM": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Produktionsdatum"
+          },
+          "PRODUKTIONSORTNR": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Produktionsortnr"
+          },
+          "PRODUKTIONSORTNAME": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Produktionsortname"
+          },
+          "VERBRAUCHSORTNR": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verbrauchsortnr"
+          },
+          "VERBRAUCHSORT": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verbrauchsort"
+          },
+          "PRODUKTIONSARTNR": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Produktionsartnr"
+          },
+          "PRODUKTIONSNAME": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Produktionsname"
+          },
+          "HINWEISE": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hinweise"
+          },
+          "MONITORSCHALTER": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monitorschalter"
+          },
+          "FREIKENNZEICHEN": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Freikennzeichen"
+          },
+          "ZUSATZBEZEICHNUNG": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Zusatzbezeichnung"
+          },
+          "AUSGABETEXTZEILE1": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ausgabetextzeile1"
+          },
+          "AUSGABETEXTZEILE2": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ausgabetextzeile2"
+          },
+          "AUSGABETEXTZEILE3": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ausgabetextzeile3"
+          },
+          "AUSGABETEXTZEILE4": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ausgabetextzeile4"
+          },
+          "AUSGABETEXTZEILE5": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ausgabetextzeile5"
+          },
+          "AUSGABETEXTZEILE6": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ausgabetextzeile6"
+          },
+          "AUSGABETEXTZEILE7": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ausgabetextzeile7"
+          },
+          "AUSGABETEXT2ZEILE1": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ausgabetext2Zeile1"
+          },
+          "AUSGABETEXT2ZEILE2": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ausgabetext2Zeile2"
+          },
+          "AUSGABETEXT2ZEILE3": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ausgabetext2Zeile3"
+          },
+          "AUSGABETEXT2ZEILE4": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ausgabetext2Zeile4"
+          },
+          "AUSGABETEXT2ZEILE5": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ausgabetext2Zeile5"
+          },
+          "AUSGABETEXT2ZEILE6": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ausgabetext2Zeile6"
+          },
+          "AUSGABETEXT2ZEILE7": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ausgabetext2Zeile7"
+          },
+          "AUSGABETEXT2ZEILE8": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ausgabetext2Zeile8"
+          },
+          "ZUSATZSTOFFNUMMERN": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Zusatzstoffnummern"
+          },
+          "VKPREISSTUD": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vkpreisstud"
+          },
+          "VKPREISBED": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vkpreisbed"
+          },
+          "VKPREISGAST": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vkpreisgast"
+          },
+          "VKPREISSCHUL": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vkpreisschul"
+          },
+          "KLIMATELLER": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Klimateller"
+          },
+          "KASSENINDEX": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kassenindex"
+          },
+          "NAEHRWERTEJE100G": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Naehrwerteje100G"
+          },
+          "NAEHRWERTEJEPORT": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Naehrwertejeport"
+          },
+          "NW_KJ": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nw Kj"
+          },
+          "NW_KCAL": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nw Kcal"
+          },
+          "NW_FETT": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nw Fett"
+          },
+          "NW_GESFETT": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nw Gesfett"
+          },
+          "NW_EIWEISS": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nw Eiweiss"
+          },
+          "NW_KH": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nw Kh"
+          },
+          "NW_ZUCKER": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nw Zucker"
+          },
+          "NW_SALZ": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nw Salz"
+          }
+        },
+        "required": [
+          "PRODUKTIONSNUMMER",
+          "PRODUKTIONSBEZEICHNUNG",
+          "PRODUKTIONSDATUM",
+          "PRODUKTIONSORTNR",
+          "PRODUKTIONSORTNAME",
+          "VERBRAUCHSORTNR",
+          "VERBRAUCHSORT",
+          "PRODUKTIONSARTNR",
+          "PRODUKTIONSNAME",
+          "HINWEISE",
+          "MONITORSCHALTER",
+          "FREIKENNZEICHEN",
+          "ZUSATZBEZEICHNUNG",
+          "AUSGABETEXTZEILE1",
+          "AUSGABETEXTZEILE2",
+          "AUSGABETEXTZEILE3",
+          "AUSGABETEXTZEILE4",
+          "AUSGABETEXTZEILE5",
+          "AUSGABETEXTZEILE6",
+          "AUSGABETEXTZEILE7",
+          "AUSGABETEXT2ZEILE1",
+          "AUSGABETEXT2ZEILE2",
+          "AUSGABETEXT2ZEILE3",
+          "AUSGABETEXT2ZEILE4",
+          "AUSGABETEXT2ZEILE5",
+          "AUSGABETEXT2ZEILE6",
+          "AUSGABETEXT2ZEILE7",
+          "AUSGABETEXT2ZEILE8",
+          "ZUSATZSTOFFNUMMERN",
+          "VKPREISSTUD",
+          "VKPREISBED",
+          "VKPREISGAST",
+          "VKPREISSCHUL",
+          "KLIMATELLER",
+          "KASSENINDEX",
+          "NAEHRWERTEJE100G",
+          "NAEHRWERTEJEPORT",
+          "NW_KJ",
+          "NW_KCAL",
+          "NW_FETT",
+          "NW_GESFETT",
+          "NW_EIWEISS",
+          "NW_KH",
+          "NW_ZUCKER",
+          "NW_SALZ"
+        ],
+        "title": "MenuItemRawSchema",
+        "type": "object"
+      },
+      "CategorySchema": {
+        "description": "Schema for menu category information",
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "required": ["id", "name"],
+        "title": "CategorySchema",
+        "type": "object"
+      }
+    }
+  },
+  "servers": []
+}
