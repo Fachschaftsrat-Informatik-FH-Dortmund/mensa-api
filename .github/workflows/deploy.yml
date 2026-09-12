@@ -65,8 +65,8 @@ jobs:
           SCRIPT_AFTER_REQUIRED: "true"
           SCRIPT_AFTER: |
             sudo /bin/systemctl restart mensa-api
-            # The cache is filled before the port opens, so a fresh start takes
-            # roughly ten seconds - poll rather than sleep a fixed amount.
+            # The port opens right away now - the cache fills on demand - but
+            # poll rather than sleep so a genuinely broken start still fails.
             for i in $(seq 1 45); do
               if curl -fsS -o /dev/null http://127.0.0.1:8080/health; then
                 echo "mensa-api is healthy after ${i} attempts"

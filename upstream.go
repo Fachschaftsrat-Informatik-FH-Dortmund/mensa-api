@@ -13,11 +13,21 @@ import (
 
 const (
 	upstreamBase = "https://www.stwdo.de/api/v2"
-	userAgent    = "mensa-api/0.1 (caching proxy; https://github.com/Fachschaftsrat-Informatik-FH-Dortmund/mensa-api)"
+
+	// version is also what openapi.json reports; TestVersionsAgree keeps the
+	// two from drifting apart.
+	version   = "0.2.0"
+	userAgent = "mensa-api/" + version +
+		" (caching proxy; https://github.com/Fachschaftsrat-Informatik-FH-Dortmund/mensa-api)"
 
 	// The upstream caps limit at 300 without saying so. Paging with skip is
 	// the only way to see everything a busy location offers in two weeks.
 	pageSize = 300
+
+	// Safety net for allMeals: today's whole two-week offer fits in four
+	// pages, so anything near this means the upstream stopped shortening the
+	// last page and we would otherwise loop for ever.
+	maxPages = 20
 )
 
 // client talks to stwdo.de. It is deliberately thin: every method returns the
@@ -60,9 +70,17 @@ func (c *client) get(ctx context.Context, path string, query url.Values, out any
 	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
 		return fmt.Errorf("GET %s: decode: %w", u, err)
 	}
-
-	time.Sleep(c.delay)
 	return nil
+}
+
+// pause spaces out consecutive upstream requests. Only the loops that need
+// several calls in a row use it — a single fetch with a guest waiting on it
+// must not sit idle for no reason. The delay is jittered for the same reason
+// the cache deadlines are: a fixed 200 ms between calls is a fingerprint.
+func (c *client) pause() {
+	if c.delay > 0 {
+		time.Sleep(jitter(c.delay))
+	}
 }
 
 // --- Speiseplan ------------------------------------------------------------
@@ -128,26 +146,33 @@ func (c *client) sites(ctx context.Context) ([]rawSite, error) {
 	return sites, nil
 }
 
-// mealsForSite fetches the next two weeks for one location, following the
-// upstream's 300-item pages until it runs dry.
-func (c *client) mealsForSite(ctx context.Context, siteID int) ([]rawMeal, error) {
+// allMeals fetches the next two weeks for every location at once. The
+// verbrauchsortnr filter is optional, and leaving it off returns the articles
+// of all canteens mixed together — currently 1066 of them, which is four pages
+// instead of the thirteen requests one call per canteen used to cost. Each
+// article carries its VERBRAUCHSORTNR, so splitting them up again is free.
+func (c *client) allMeals(ctx context.Context) ([]rawMeal, error) {
 	var all []rawMeal
-	for skip := 0; ; skip += pageSize {
+	for page := 0; page < maxPages; page++ {
+		if page > 0 {
+			c.pause()
+		}
 		q := url.Values{
-			"verbrauchsortnr":   {strconv.Itoa(siteID)},
 			"naechste_2_wochen": {"true"},
 			"limit":             {strconv.Itoa(pageSize)},
-			"skip":              {strconv.Itoa(skip)},
+			"skip":              {strconv.Itoa(page * pageSize)},
 		}
-		var page []rawMeal
-		if err := c.get(ctx, "/speiseplan/artikel", q, &page); err != nil {
+		var batch []rawMeal
+		if err := c.get(ctx, "/speiseplan/artikel", q, &batch); err != nil {
 			return nil, err
 		}
-		all = append(all, page...)
-		if len(page) < pageSize {
+		all = append(all, batch...)
+		if len(batch) < pageSize {
 			return all, nil
 		}
 	}
+	// An upstream that never returns a short page would page forever.
+	return all, fmt.Errorf("artikel: more than %d pages, giving up", maxPages)
 }
 
 // --- Öffnungszeiten --------------------------------------------------------

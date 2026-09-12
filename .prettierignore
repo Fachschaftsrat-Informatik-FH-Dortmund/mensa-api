@@ -1,0 +1,5 @@
+# Von pixi generiert und von pixi geschrieben - Prettier hat hier nichts zu suchen.
+pixi.lock
+
+# Build-Artefakt.
+bin/

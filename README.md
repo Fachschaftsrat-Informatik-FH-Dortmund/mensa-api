@@ -14,8 +14,9 @@ gedacht, um es auf einen Server zu kopieren und dort laufen zu lassen.
 pixi run run
 ```
 
-Dann auf <http://localhost:8080>. Der Cache wird **vor** dem Öffnen des Ports
-gefüllt, der Start dauert daher etwa 10 Sekunden.
+Dann auf <http://localhost:8080>. Der Port geht sofort auf: geladen wird erst,
+wenn eine Anfrage die Daten braucht. Die erste Anfrage auf einen leeren Cache
+dauert daher rund eine Sekunde, jede weitere wenige Millisekunden.
 
 ```bash
 curl -s localhost:8080/canteens/341/menu/today | head -40
@@ -32,14 +33,15 @@ Go — nur die Datei.
 
 ### Optionen
 
-| Flag           | Default | Bedeutung                                                                                |
-| -------------- | ------- | ---------------------------------------------------------------------------------------- |
-| `-addr`        | `:8080` | Adresse, auf der gelauscht wird                                                          |
-| `-refresh`     | `1h`    | Abstand zwischen zwei Cache-Läufen                                                       |
-| `-cms-refresh` | `24h`   | Abstand für Adressen und Namen aus dem CMS                                               |
-| `-timeout`     | `20s`   | Timeout pro Anfrage an stwdo.de                                                          |
-| `-delay`       | `200ms` | Pause zwischen zwei Anfragen an stwdo.de                                                 |
-| `-docs`        | `true`  | `/docs` ausliefern; `-docs=false` schaltet nur die HTML-Seite ab, `/openapi.json` bleibt |
+| Flag            | Default | Bedeutung                                                                                |
+| --------------- | ------- | ---------------------------------------------------------------------------------------- |
+| `-addr`         | `:8080` | Adresse, auf der gelauscht wird                                                          |
+| `-ttl`          | `1h`    | wie lange Speisepläne und Öffnungszeiten im Cache frisch bleiben                         |
+| `-canteens-ttl` | `24h`   | wie lange die Mensa-Liste (inkl. Adressen und Namen aus dem CMS) frisch bleibt           |
+| `-timeout`      | `20s`   | Timeout pro Anfrage an stwdo.de                                                          |
+| `-delay`        | `200ms` | Pause zwischen zwei aufeinanderfolgenden Anfragen an stwdo.de                            |
+| `-warm`         | `false` | beim Start laden statt bei der ersten Anfrage                                            |
+| `-docs`         | `true`  | `/docs` ausliefern; `-docs=false` schaltet nur die HTML-Seite ab, `/openapi.json` bleibt |
 
 ## Endpunkte
 
@@ -51,7 +53,7 @@ Go — nur die Datei.
 | `GET /canteens/{id}/menu/{date}` | ein Tag; `date` ist `YYYY-MM-DD` oder `today`                    |
 | `GET /canteens/{id}/hours`       | heute, 7-Tage-Vorschau, Wochenplan, Schließtage                  |
 | `GET /legend`                    | Zusatzstoffe, Allergene, Kennzeichen und CO₂-Klassen im Klartext |
-| `GET /health`                    | Cache-Alter, Anzahl Mensen und Gerichte, letzter Fehler          |
+| `GET /health`                    | Alter jeder Cache-Gruppe, Anzahl Mensen und Gerichte, Fehler     |
 | `GET /openapi.json`              | die Spezifikation dieser API (OpenAPI 3.1)                       |
 | `GET /docs`                      | die Spezifikation gerendert, siehe unten                         |
 
@@ -73,10 +75,24 @@ Beispiel für ein Gericht:
 
 ## Was der Server anders macht als das Original
 
-- **Cache statt Durchreichen.** Anfragen erreichen stwdo.de nie. Ein
-  Hintergrund-Goroutine lädt stündlich alles neu; die Last dort ist damit
-  konstant, egal wie viele Clients zugreifen. Schlägt ein Lauf teilweise fehl,
-  bleibt der alte Stand stehen, statt eine Lücke zu liefern.
+- **Cache statt Durchreichen.** Anfragen erreichen stwdo.de nie. Geladen wird
+  bedarfsgesteuert: Eine Cache-Gruppe wird erst dann neu geholt, wenn eine
+  Anfrage sie braucht _und_ sie abgelaufen ist. Es läuft kein Timer im
+  Hintergrund — ein Dienst, den niemand fragt, erzeugt bei stwdo.de gar keine
+  Last, und die Anfragen, die er stellt, folgen echtem Verkehr statt einer Uhr.
+  Schlägt ein Abruf fehl, bleibt der alte Stand stehen, statt eine Lücke zu
+  liefern.
+- **Niemand wartet auf einen warmen Cache.** Ist eine Gruppe abgelaufen, bekommt
+  der Client sofort den etwas älteren Stand, und der Refresh läuft hinter seinem
+  Rücken (stale-while-revalidate). Nur ein komplett leerer Cache lässt warten.
+  Treffen dabei viele Anfragen gleichzeitig ein, holt trotzdem genau eine die
+  Daten.
+- **Ein Sweep statt 31 Anfragen.** Der `verbrauchsortnr`-Filter der Artikel-API
+  ist optional; ohne ihn kommen die Speisepläne aller Mensen zusammen — aktuell
+  1066 Gerichte in vier Seiten statt dreizehn Einzelabrufen. Nur die
+  Öffnungszeiten bleiben eine Anfrage pro Mensa, weil der Upstream dort auf
+  `restaurant_id` besteht; die werden deshalb einzeln und nur für tatsächlich
+  abgefragte Mensen geladen.
 - **45 Felder werden 10.** Die zehn dauerhaft leeren Nährwertfelder, die
   Küchennotizen, der Kassenindex und der Monitor-Slot fallen weg. Die sieben
   `AUSGABETEXTZEILE*` werden ein `lines`-Array, die Allergencodes wandern aus
@@ -126,8 +142,9 @@ schiebt es auf den Server:
 [`.github/workflows/deploy.yml`](./.github/workflows/deploy.yml). Der Workflow
 baut mit der in `pixi.lock` festgenagelten Go-Version, kopiert die eine Datei
 per rsync nach `/opt/mensa-api/` und startet den Dienst neu. Danach pollt er
-`/health`, bis der Cache gefüllt ist — schlägt das fehl, schlägt der Workflow
-fehl.
+`/health`, bis der Dienst antwortet — schlägt das fehl, schlägt der Workflow
+fehl. Dass der Cache dabei noch leer ist (`"status": "cold"`), ist kein Fehler,
+sondern der Normalfall.
 
 Auf dem Server läuft mensa-api als systemd-Dienst auf `127.0.0.1:8080`, nginx
 terminiert TLS und leitet `mensa.fb4.it` dorthin weiter. Die systemd-Unit, der
@@ -136,8 +153,8 @@ einmaligen Einrichtung liegen **nicht hier** — sie nennen Benutzer und Pfade d
 Maschine, und dieses Repository ist öffentlich. Wer sie braucht, fragt im FSR.
 
 Der Dienst läuft unter `DynamicUser=yes` — es gibt keinen Zustand auf der
-Platte, der Cache liegt nur im Speicher. Ein Neustart holt alles erneut von
-stwdo.de, bevor der Port aufgeht.
+Platte, der Cache liegt nur im Speicher. Nach einem Neustart ist er leer und
+füllt sich mit den ersten Anfragen wieder.
 
 Auf dem Server läuft er mit `-docs=false`: die Swagger-UI-Seite gibt es dort
 nicht, <https://mensa.fb4.it/docs> antwortet mit 404.
@@ -150,18 +167,19 @@ Repository gesetzt sein; `SSH_PORT` ist optional und fällt auf 22 zurück.
 
 ## Aufbau
 
-| Datei                              | Inhalt                                                          |
-| ---------------------------------- | --------------------------------------------------------------- |
-| [`main.go`](./main.go)             | Flags, Routing, JSON- und Logging-Helfer                        |
-| [`upstream.go`](./upstream.go)     | HTTP-Client für stwdo.de, Rohtypen                              |
-| [`model.go`](./model.go)           | die ausgelieferten Typen und die Umwandlung                     |
-| [`cache.go`](./cache.go)           | Speicher, Hintergrund-Refresh, Zusammenführung der Mensa-Listen |
-| [`legend.go`](./legend.go)         | statische Legenden (Allergene, Kennzeichen)                     |
-| [`docs.go`](./docs.go)             | `/openapi.json` und die Swagger-UI-Seite                        |
-| [`openapi.json`](./openapi.json)   | Spezifikation dieser API, handgeschrieben                       |
-| [`model_test.go`](./model_test.go) | Tests für die Umwandlung                                        |
-| [`docs_test.go`](./docs_test.go)   | Tests gegen veraltete Spezifikation                             |
-| [`upstream/`](./upstream/)         | die Recherche zur fremden API, die dieser Server kapselt        |
+| Datei                              | Inhalt                                                           |
+| ---------------------------------- | ---------------------------------------------------------------- |
+| [`main.go`](./main.go)             | Flags, Routing, JSON- und Logging-Helfer                         |
+| [`upstream.go`](./upstream.go)     | HTTP-Client für stwdo.de, Rohtypen                               |
+| [`model.go`](./model.go)           | die ausgelieferten Typen und die Umwandlung                      |
+| [`cache.go`](./cache.go)           | Speicher, bedarfsgesteuerter Refresh, Zusammenführung der Listen |
+| [`legend.go`](./legend.go)         | statische Legenden (Allergene, Kennzeichen)                      |
+| [`docs.go`](./docs.go)             | `/openapi.json` und die Swagger-UI-Seite                         |
+| [`openapi.json`](./openapi.json)   | Spezifikation dieser API, handgeschrieben                        |
+| [`model_test.go`](./model_test.go) | Tests für die Umwandlung                                         |
+| [`cache_test.go`](./cache_test.go) | Tests für Auffrischung, Stampede-Schutz und Jitter               |
+| [`docs_test.go`](./docs_test.go)   | Tests gegen veraltete Spezifikation                              |
+| [`upstream/`](./upstream/)         | die Recherche zur fremden API, die dieser Server kapselt         |
 
 Zwei Dateien heißen `openapi.json`: die hier oben ist die Spezifikation
 **dieses** Servers, [`upstream/openapi.json`](./upstream/openapi.json) die des
@@ -191,11 +209,9 @@ Weitere Fallstricke stehen in
 
 ## Was fehlt
 
-Der Cache liegt nur im Speicher; nach einem Neustart wird er neu geladen. Diese
-rund zehn Sekunden bekommt auch nginx zu sehen: der Dienst meldet systemd kein
-„bereit" (`Type=notify`), ein Deploy antwortet in dieser Zeit also mit 502. Bei
-Daten, die sich stündlich ändern, ist das verschmerzbar — ein zweiter Prozess,
-auf den nginx umschwenkt, wäre der Aufwand nicht wert.
+Der Cache liegt nur im Speicher; nach einem Neustart ist er leer. Der Port geht
+inzwischen sofort auf, ein Deploy kostet also keine 502er mehr — nur die ersten
+Anfragen danach dauern rund eine Sekunde statt Millisekunden.
 
 Überwacht wird nichts: `/health` fragt nur der Deploy-Workflow ab, und wenn der
 Dienst nachts stirbt, startet ihn systemd zwar neu, sagt aber niemandem

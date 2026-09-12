@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "mensa-api",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "Aufgeräumte, gecachte Sicht auf die Speiseplan-API des Studierendenwerks Dortmund.\n\nAlle Antworten kommen aus einem Speicher-Cache, der im Hintergrund periodisch aktualisiert wird; Anfragen erreichen stwdo.de nie. Gegenüber der Quelle sind die betrieblichen und dauerhaft leeren Felder entfernt, Datumsangaben auf ISO umgestellt und die Mensa-Liste um die Standorte ergänzt, die die Quelle nicht kennt.\n\nEinstieg: **GET /canteens** liefert die IDs, mit denen alle anderen Endpunkte arbeiten.",
     "license": {
       "name": "Kein offizielles Angebot des Studierendenwerks Dortmund"
@@ -168,7 +168,7 @@
         "tags": ["meta"],
         "operationId": "getHealth",
         "summary": "Zustand des Caches",
-        "description": "`status` ist `ok`, `degraded` (letzter Lauf teilweise fehlgeschlagen, es werden ältere Daten geliefert) oder `warming up` (noch kein Lauf abgeschlossen).",
+        "description": "`status` ist `ok`, `degraded` (ein Abruf schlug fehl, es werden ältere Daten geliefert) oder `cold` (noch nichts geladen — der Normalfall direkt nach dem Start, da erst eine Anfrage den Abruf auslöst).\n\nDieser Endpunkt löst selbst **keinen** Abruf bei stwdo.de aus: Monitoring darf ihn beliebig oft pollen, ohne den Cache warm zu halten.",
         "responses": {
           "200": {
             "description": "Zustand",
@@ -252,7 +252,7 @@
           "mapsUrl": { "type": "string", "format": "uri" },
           "hasMenu": {
             "type": "boolean",
-            "description": "false bei Standorten, die die Quelle zwar kennt, für die sie aber keine Speisen liefert."
+            "description": "true, wenn die Mensa der Speiseplan-API bekannt ist. Sagt nicht, ob gerade Gerichte angeboten werden — in der vorlesungsfreien Zeit kann der Speiseplan trotzdem leer sein."
           }
         }
       },
@@ -525,24 +525,66 @@
           "note": { "type": "string" }
         }
       },
+      "CacheGroup": {
+        "type": "object",
+        "required": ["updated", "ageSeconds"],
+        "properties": {
+          "updated": { "type": "string", "format": "date-time" },
+          "ageSeconds": { "type": "integer" }
+        }
+      },
       "Status": {
         "type": "object",
-        "required": ["status", "canteens", "meals", "updated", "ageSeconds"],
+        "required": ["status", "canteens", "meals", "cache"],
         "properties": {
           "status": {
             "type": "string",
-            "enum": ["ok", "degraded", "warming up"]
+            "enum": ["ok", "degraded", "cold"]
           },
           "canteens": { "type": "integer" },
           "meals": {
             "type": "integer",
             "description": "Anzahl aller gecachten Gerichte über alle Mensen und Tage"
           },
-          "updated": { "type": "string", "format": "date-time" },
-          "ageSeconds": { "type": "integer" },
+          "cache": {
+            "type": "object",
+            "description": "Alter je Cache-Gruppe. Jede Gruppe wird für sich geladen, einen gemeinsamen letzten Lauf gibt es nicht.",
+            "required": ["canteens", "menus", "hours"],
+            "properties": {
+              "canteens": {
+                "description": "null, solange die Mensa-Liste nicht geladen ist",
+                "anyOf": [
+                  { "$ref": "#/components/schemas/CacheGroup" },
+                  { "type": "null" }
+                ]
+              },
+              "menus": {
+                "description": "null, solange noch kein Speiseplan geladen ist",
+                "anyOf": [
+                  { "$ref": "#/components/schemas/CacheGroup" },
+                  { "type": "null" }
+                ]
+              },
+              "hours": {
+                "type": "object",
+                "description": "Öffnungszeiten werden je Mensa einzeln geladen, sobald jemand danach fragt.",
+                "required": ["canteens", "oldestAgeSeconds"],
+                "properties": {
+                  "canteens": {
+                    "type": "integer",
+                    "description": "für wie viele Mensen Öffnungszeiten im Cache liegen"
+                  },
+                  "oldestAgeSeconds": {
+                    "type": "integer",
+                    "description": "Alter des ältesten dieser Einträge"
+                  }
+                }
+              }
+            }
+          },
           "lastFailure": {
             "type": "string",
-            "description": "steht nur dabei, wenn der letzte Lauf teilweise fehlschlug"
+            "description": "steht nur dabei, wenn ein Abruf zuletzt fehlschlug"
           }
         }
       }

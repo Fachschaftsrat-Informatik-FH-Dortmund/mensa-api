@@ -16,23 +16,25 @@ import (
 
 func main() {
 	addr := flag.String("addr", ":8080", "address to listen on")
-	refresh := flag.Duration("refresh", time.Hour, "how often to refresh menus and opening hours")
-	cmsRefresh := flag.Duration("cms-refresh", 24*time.Hour, "how often to refresh addresses and names from the CMS")
+	ttl := flag.Duration("ttl", time.Hour, "how long cached menus and opening hours stay fresh")
+	canteensTTL := flag.Duration("canteens-ttl", 24*time.Hour, "how long the cached canteen list stays fresh")
 	timeout := flag.Duration("timeout", 20*time.Second, "timeout for a single upstream request")
-	delay := flag.Duration("delay", 200*time.Millisecond, "pause between upstream requests")
+	delay := flag.Duration("delay", 200*time.Millisecond, "pause between consecutive upstream requests")
+	warm := flag.Bool("warm", false, "fetch canteens and menus at startup instead of on first use")
 	docs := flag.Bool("docs", true, "serve the rendered API reference at /docs")
 	flag.Parse()
-
-	st := newStore(newClient(*timeout, *delay), *cmsRefresh)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// Fill the cache before opening the port: a server that answers with
-	// "warming up" is more confusing than one that starts a few seconds later.
-	log.Printf("filling cache from %s ...", upstreamBase)
-	st.refresh(ctx)
-	go st.run(ctx, *refresh)
+	st := newStore(ctx, newClient(*timeout, *delay), *ttl, *canteensTTL)
+
+	// Nothing is fetched until a request needs it, so the port can open at
+	// once. -warm trades that silence for a faster first response.
+	if *warm {
+		log.Printf("filling cache from %s ...", upstreamBase)
+		st.warm()
+	}
 
 	server := &http.Server{
 		Addr:              *addr,
@@ -47,7 +49,8 @@ func main() {
 		_ = server.Shutdown(shutdown)
 	}()
 
-	log.Printf("listening on %s, refreshing every %s", *addr, *refresh)
+	log.Printf("listening on %s, cached data stays fresh for %s (canteen list %s)",
+		*addr, *ttl, *canteensTTL)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}
@@ -89,6 +92,7 @@ func routes(st *store, withDocs bool) http.Handler {
 	})
 
 	mux.HandleFunc("GET /canteens", func(w http.ResponseWriter, r *http.Request) {
+		st.ensureCanteens()
 		canteens, updated := st.allCanteens()
 		writeJSON(w, http.StatusOK, map[string]any{
 			"updated":  updated,
@@ -109,6 +113,7 @@ func routes(st *store, withDocs bool) http.Handler {
 		if !ok {
 			return
 		}
+		st.ensureMenus()
 		days, _ := st.menuFor(canteen.ID)
 		if days == nil {
 			days = []Day{}
@@ -130,6 +135,7 @@ func routes(st *store, withDocs bool) http.Handler {
 			return
 		}
 
+		st.ensureMenus()
 		days, _ := st.menuFor(canteen.ID)
 		response := DayResponse{Canteen: canteen.ref(), Date: date, Categories: []Category{}}
 		for _, day := range days {
@@ -146,9 +152,10 @@ func routes(st *store, withDocs bool) http.Handler {
 		if !ok {
 			return
 		}
+		st.ensureHours(canteen.ID)
 		hours, found := st.hoursFor(canteen.ID)
 		if !found {
-			writeError(w, http.StatusNotFound, "no opening hours cached for this canteen")
+			writeError(w, http.StatusNotFound, "no opening hours available for this canteen")
 			return
 		}
 		writeJSON(w, http.StatusOK, hours)
@@ -158,8 +165,12 @@ func routes(st *store, withDocs bool) http.Handler {
 }
 
 // lookup resolves the {id} path value and writes the error response itself if
-// it does not name a canteen we know.
+// it does not name a canteen we know. It is also where every /canteens/{id}
+// route pulls in the canteen list, which it needs to tell a valid id from a
+// typo in the first place.
 func lookup(st *store, w http.ResponseWriter, r *http.Request) (Canteen, bool) {
+	st.ensureCanteens()
+
 	id, err := strconv.Atoi(r.PathValue("id"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "canteen id must be a number")

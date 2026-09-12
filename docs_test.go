@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -64,9 +65,25 @@ func TestEveryRouteIsDocumented(t *testing.T) {
 	}
 }
 
+// The version appears twice: as a Go constant in the User-Agent we introduce
+// ourselves with, and in the specification we hand out. Bumping only one of
+// them is the obvious way to get this wrong.
+func TestVersionsAgree(t *testing.T) {
+	var spec struct {
+		Info struct{ Version string } `json:"info"`
+	}
+	if err := json.Unmarshal(openAPISpec, &spec); err != nil {
+		t.Fatalf("openapi.json: %v", err)
+	}
+	if spec.Info.Version != version {
+		t.Errorf("openapi.json says version %q, the binary says %q",
+			spec.Info.Version, version)
+	}
+}
+
 func TestDocsCanBeSwitchedOff(t *testing.T) {
 	for _, withDocs := range []bool{true, false} {
-		handler := routes(newStore(newClient(0, 0), 0), withDocs)
+		handler := routes(newStore(context.Background(), newClient(0, 0), 0, 0), withDocs)
 
 		request := httptest.NewRequest(http.MethodGet, "/docs", nil)
 		recorder := httptest.NewRecorder()
