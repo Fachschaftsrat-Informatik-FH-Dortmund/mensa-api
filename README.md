@@ -119,6 +119,35 @@ Weil die Spezifikation von Hand gepflegt wird, prüft
 [`docs_test.go`](./docs_test.go), dass sie gültiges JSON ist und dass Routen
 und dokumentierte Pfade sich exakt decken — in beide Richtungen.
 
+## Deployment
+
+Gehostet auf <https://mensa.fb4.it>. Jeder Push auf `main` baut das Binary und
+schiebt es auf den Server:
+[`.github/workflows/deploy.yml`](./.github/workflows/deploy.yml). Der Workflow
+baut mit der in `pixi.lock` festgenagelten Go-Version, kopiert die eine Datei
+per rsync nach `/opt/mensa-api/` und startet den Dienst neu. Danach pollt er
+`/health`, bis der Cache gefüllt ist — schlägt das fehl, schlägt der Workflow
+fehl.
+
+Auf dem Server läuft mensa-api als systemd-Dienst auf `127.0.0.1:8080`, nginx
+terminiert TLS und leitet `mensa.fb4.it` dorthin weiter. Die systemd-Unit, der
+nginx-vhost, die sudoers-Zeile für den Deploy-Benutzer und die Anleitung zur
+einmaligen Einrichtung liegen **nicht hier** — sie nennen Benutzer und Pfade der
+Maschine, und dieses Repository ist öffentlich. Wer sie braucht, fragt im FSR.
+
+Der Dienst läuft unter `DynamicUser=yes` — es gibt keinen Zustand auf der
+Platte, der Cache liegt nur im Speicher. Ein Neustart holt alles erneut von
+stwdo.de, bevor der Port aufgeht.
+
+Auf dem Server läuft er mit `-docs=false`: die Swagger-UI-Seite gibt es dort
+nicht, <https://mensa.fb4.it/docs> antwortet mit 404.
+[`openapi.json`](./openapi.json) wird weiterhin ausgeliefert — die Spezifikation
+nützt Client-Generatoren, die HTML-Seite mit ihrem CDN-Script nicht. Lokal ist
+`/docs` unverändert da.
+
+Die drei Secrets `SSH_HOST`, `SSH_USERNAME` und `SSH_PRIVATE_KEY` müssen im
+Repository gesetzt sein; `SSH_PORT` ist optional und fällt auf 22 zurück.
+
 ## Aufbau
 
 | Datei                              | Inhalt                                                          |
@@ -162,6 +191,12 @@ Weitere Fallstricke stehen in
 
 ## Was fehlt
 
-Der Cache liegt nur im Speicher; nach einem Neustart wird er neu geladen. Für
-einen dauerhaften Betrieb wäre eine systemd-Unit sinnvoll, die das Binary
-startet und neu startet — beides gibt es hier noch nicht.
+Der Cache liegt nur im Speicher; nach einem Neustart wird er neu geladen. Diese
+rund zehn Sekunden bekommt auch nginx zu sehen: der Dienst meldet systemd kein
+„bereit" (`Type=notify`), ein Deploy antwortet in dieser Zeit also mit 502. Bei
+Daten, die sich stündlich ändern, ist das verschmerzbar — ein zweiter Prozess,
+auf den nginx umschwenkt, wäre der Aufwand nicht wert.
+
+Überwacht wird nichts: `/health` fragt nur der Deploy-Workflow ab, und wenn der
+Dienst nachts stirbt, startet ihn systemd zwar neu, sagt aber niemandem
+Bescheid.

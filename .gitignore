@@ -5,3 +5,7 @@
 
 # pixi environment, reproducible via `pixi install`
 /.pixi/
+
+# Server-Konfiguration und Einrichtungsanleitung: nennen Benutzer, Pfade und
+# sudo-Regeln, die in ein öffentliches Repository nicht gehören.
+/deploy/

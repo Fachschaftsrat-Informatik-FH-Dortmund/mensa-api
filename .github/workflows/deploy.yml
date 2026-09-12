@@ -1,0 +1,79 @@
+# .github/workflows/deploy.yml
+
+name: Build and deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+# A deploy that overtakes another one would leave the server on the older
+# binary. Queue instead of cancelling: every push should reach the machine.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      # pixi.lock pins Go down to the build number, so the runner compiles with
+      # exactly the toolchain used locally. A `go-version:` in this file would
+      # be a second place to keep in sync.
+      - name: Set up pixi
+        uses: prefix-dev/setup-pixi@v0.10.2
+        with:
+          cache: true
+
+      - name: Vet
+        run: pixi run vet
+
+      - name: Test
+        run: pixi run test
+
+      # CGO is off anyway with go-nocgo, but stating it keeps the binary
+      # static even if the toolchain in pixi.toml is ever swapped.
+      - name: Build binary
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: amd64
+        run: pixi run go build -trimpath -ldflags="-s -w" -o dist/mensa-api .
+
+      - name: Deploy to server
+        uses: easingthemes/ssh-deploy@v6.0.3
+        with:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          REMOTE_HOST: ${{ secrets.SSH_HOST }}
+          REMOTE_USER: ${{ secrets.SSH_USERNAME }}
+          REMOTE_PORT: ${{ secrets.SSH_PORT || 22 }}
+          SOURCE: "dist/"
+          TARGET: "/opt/mensa-api"
+          # rsync writes a temporary file and renames it over the target, so
+          # replacing the binary while it runs does not hit ETXTBSY. --chmod
+          # keeps the executable bit independent of the remote umask. No -g/-o:
+          # the deploy user may not chgrp/chown (see fsrfb4.de-mkdocs, where
+          # that made rsync abort with exit code 23).
+          ARGS: "-rlDzv --no-times --perms --chmod=F755"
+          # Without this the action swallows a failing SCRIPT_AFTER and reports
+          # the deploy as green, health check or not.
+          SCRIPT_AFTER_REQUIRED: "true"
+          SCRIPT_AFTER: |
+            sudo /bin/systemctl restart mensa-api
+            # The cache is filled before the port opens, so a fresh start takes
+            # roughly ten seconds - poll rather than sleep a fixed amount.
+            for i in $(seq 1 45); do
+              if curl -fsS -o /dev/null http://127.0.0.1:8080/health; then
+                echo "mensa-api is healthy after ${i} attempts"
+                exit 0
+              fi
+              sleep 2
+            done
+            echo "mensa-api did not answer /health within 90s"
+            systemctl status mensa-api --no-pager --lines=30 || true
+            exit 1
