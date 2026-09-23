@@ -499,7 +499,12 @@
         "required": ["code", "label"],
         "properties": {
           "code": { "type": "string", "example": "20a" },
-          "label": { "type": "string", "example": "Gluten aus Weizen" }
+          "label": { "type": "string", "example": "Gluten aus Weizen" },
+          "labelEn": {
+            "type": "string",
+            "description": "Englische Fassung von label, eigene Übersetzung; maßgeblich ist label. Fehlt sie, auf label zurückfallen.",
+            "example": "Gluten from wheat"
+          }
         }
       },
       "Legend": {
@@ -522,7 +527,11 @@
             "type": "array",
             "items": { "$ref": "#/components/schemas/LegendEntry" }
           },
-          "note": { "type": "string" }
+          "note": { "type": "string" },
+          "noteEn": {
+            "type": "string",
+            "description": "Englische Fassung von note"
+          }
         }
       },
       "CacheGroup": {

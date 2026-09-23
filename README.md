@@ -45,17 +45,17 @@ Go — nur die Datei.
 
 ## Endpunkte
 
-| Pfad                             | Was zurückkommt                                                  |
-| -------------------------------- | ---------------------------------------------------------------- |
-| `GET /canteens`                  | alle Mensen mit Name, Adresse, Maps-Link, Beschreibung           |
-| `GET /canteens/{id}`             | eine Mensa                                                       |
-| `GET /canteens/{id}/menu`        | die nächsten zwei Wochen, nach Tag und Kategorie gruppiert       |
-| `GET /canteens/{id}/menu/{date}` | ein Tag; `date` ist `YYYY-MM-DD` oder `today`                    |
-| `GET /canteens/{id}/hours`       | heute, 7-Tage-Vorschau, Wochenplan, Schließtage                  |
-| `GET /legend`                    | Zusatzstoffe, Allergene, Kennzeichen und CO₂-Klassen im Klartext |
-| `GET /health`                    | Alter jeder Cache-Gruppe, Anzahl Mensen und Gerichte, Fehler     |
-| `GET /openapi.json`              | die Spezifikation dieser API (OpenAPI 3.1)                       |
-| `GET /docs`                      | die Spezifikation gerendert, siehe unten                         |
+| Pfad                             | Was zurückkommt                                                                        |
+| -------------------------------- | -------------------------------------------------------------------------------------- |
+| `GET /canteens`                  | alle Mensen mit Name, Adresse, Maps-Link, Beschreibung                                 |
+| `GET /canteens/{id}`             | eine Mensa                                                                             |
+| `GET /canteens/{id}/menu`        | die nächsten zwei Wochen, nach Tag und Kategorie gruppiert                             |
+| `GET /canteens/{id}/menu/{date}` | ein Tag; `date` ist `YYYY-MM-DD` oder `today`                                          |
+| `GET /canteens/{id}/hours`       | heute, 7-Tage-Vorschau, Wochenplan, Schließtage                                        |
+| `GET /legend`                    | Zusatzstoffe, Allergene, Kennzeichen und CO₂-Klassen im Klartext, deutsch und englisch |
+| `GET /health`                    | Alter jeder Cache-Gruppe, Anzahl Mensen und Gerichte, Fehler                           |
+| `GET /openapi.json`              | die Spezifikation dieser API (OpenAPI 3.1)                                             |
+| `GET /docs`                      | die Spezifikation gerendert, siehe unten                                               |
 
 Beispiel für ein Gericht:
 
